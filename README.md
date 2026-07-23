@@ -6,6 +6,8 @@ Shared GitHub defaults and automation for the Intuitum organization.
 - `claude.yml` provides trusted-collaborator Claude automation.
 - `shared-checks.yml` provides repository hygiene, Actions validation, and
   secret scanning for `solo`, `leo`, and `diffuse`.
+- `ci.yml` runs those shared checks against this repository on GitHub-hosted
+  runners.
 
 Shared workflows are opt-in. Build, test, deployment, and release automation
 remain with the repositories they serve.
