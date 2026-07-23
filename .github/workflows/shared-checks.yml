@@ -4,10 +4,10 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: Linux runner label for the job.
+        description: Linux runner label for the job. Defaults to the isolated Intuitum CI pool.
         required: false
         type: string
-        default: self-hosted
+        default: linux-ci
 
 concurrency:
   group: shared-checks-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
@@ -19,7 +19,7 @@ permissions:
 jobs:
   checks:
     name: Shared checks
-    runs-on: ${{ inputs.runner || 'self-hosted' }}
+    runs-on: ${{ inputs.runner || 'linux-ci' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
