@@ -1,7 +1,8 @@
 # Universal CI
 
-Universal CI is the stack-independent baseline for every non-empty
-`Intuitumxyz` repository.
+Universal CI is the opt-in stack-independent baseline for `Intuitumxyz/solo`,
+`Intuitumxyz/leo`, and `Intuitumxyz/Diffuse`. Storing it centrally does not
+cause it to run in other repositories.
 
 ## What it checks
 
@@ -29,16 +30,15 @@ continues to own:
 - notifications and agent integrations;
 - any non-default runner requirements.
 
-Current local CI:
+Selected repository behavior:
 
 | Repository | Local checks |
 |---|---|
-| `solo` | Core, extension, Copilot, component, and package checks on self-hosted runners. |
-| `argus` | SwiftPM build/test should be added separately. |
-| `intuitum-site` | Node lint and typecheck. |
-| `leo-site` | Node build/typecheck/test should be added separately. |
-| `leo` | Node typecheck/test plus deployment workflows. |
-| `argus.core` | Python 3.12/3.13 Ruff, Pyright, and Pytest matrix. |
+| `solo` | Add Universal CI on `self-hosted`; keep existing core, extension, Copilot, component, and package checks. |
+| `leo` | Add Universal CI on `self-hosted`; keep existing Node validation and deployment workflows. |
+| `Diffuse` | Add Universal CI on `self-hosted` after the currently empty repository receives its first commit. |
+
+No Universal CI caller should be added to other repositories.
 
 ## Caller
 
@@ -58,16 +58,15 @@ permissions:
 jobs:
   universal:
     uses: Intuitumxyz/.github/.github/workflows/universal-ci.yml@main
+    with:
+      runner: self-hosted
 ```
-
-`solo` passes `runner: self-hosted` to preserve its current scan capacity.
 
 ## Rollout
 
-The public `.github` repository makes the reusable workflow accessible to
-private organization repositories, but it does not inject the workflow
-automatically. Add the thin caller to each existing repository. The workflow
-template makes the same caller discoverable for future repositories.
+The public `.github` repository makes the reusable workflow accessible to the
+selected private repositories, but it does not inject or run the workflow
+automatically. Add the thin caller only to `solo`, `leo`, and `Diffuse`.
 
 Repositories that did not previously run Gitleaks should receive one manual
 full-history run after adoption. Normal PR and push runs stay incremental so

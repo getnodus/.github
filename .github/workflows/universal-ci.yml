@@ -7,12 +7,7 @@ on:
         description: Linux runner label for the job.
         required: false
         type: string
-        default: ubuntu-latest
-  pull_request:
-  push:
-    branches: [main]
-    tags: ['**']
-  workflow_dispatch:
+        default: self-hosted
 
 concurrency:
   group: universal-ci-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
@@ -24,7 +19,7 @@ permissions:
 jobs:
   universal:
     name: Universal CI
-    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 20
     steps:
       - name: Checkout

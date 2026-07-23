@@ -1,7 +1,0 @@
-{
-  "name": "Intuitumxyz Universal CI",
-  "description": "Changed-file hygiene, GitHub Actions validation, and secret scanning for every repository.",
-  "iconName": "octicon shield-check",
-  "categories": ["Automation"],
-  "filePatterns": [".*"]
-}
