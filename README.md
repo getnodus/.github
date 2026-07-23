@@ -1,27 +1,24 @@
-# Intuitumxyz GitHub defaults
+# Intuitumxyz GitHub
 
-This special repository is the organization home for:
-
-- the public organization profile and default community-health files;
-- reusable GitHub Actions workflows;
-- workflow templates for new repositories;
-- the shared Renovate preset;
-- organization-wide repository automation guidance.
-
-## Shared automation
+Organization defaults and narrowly shared automation.
 
 | Path | Purpose |
 |---|---|
-| `.github/workflows/universal-ci.yml` | Opt-in reusable changed-file hygiene, Actions syntax validation, and secret scanning for `solo`, `leo`, and `Diffuse`. |
+| `SECURITY.md` | Default vulnerability-reporting policy for organization repositories. |
+| `.github/workflows/shared-checks.yml` | Reusable changed-file hygiene, Actions validation, and secret scanning for `solo`, `leo`, and `diffuse` only. |
 | `.github/workflows/claude.yml` | Reusable trusted-collaborator `@claude` workflow. |
 | `default.json` | Shared Renovate preset, referenced as `github>Intuitumxyz/.github`. |
-| `renovate-config.json` | Makes the shared preset discoverable during Renovate onboarding. |
+| `renovate.json` | Renovate configuration for this repository. |
 
-Universal CI deliberately does not install dependencies or guess build, lint,
-typecheck, or test commands. Those checks stay in each repository and match its
-actual stack. It is callable only and does not run in this repository. See
-[`docs/UNIVERSAL_CI.md`](docs/UNIVERSAL_CI.md).
+Shared checks are callable only; they do not run automatically in this
+repository or across the organization. Thin callers belong only in `solo`,
+`leo`, and `diffuse`. They use self-hosted runners and check:
 
-The former `Intuitumxyz/workflow` repository remains a compatibility host until
-all callers are migrated and verified. It should be archived, not immediately
-deleted, after the compatibility window.
+- changed-file whitespace and conflict markers;
+- GitHub Actions structure and expressions;
+- changed commits for secrets.
+
+Builds, tests, deployments, releases, notifications, and agent automation stay
+with the repository they serve. The deprecated `Intuitumxyz/workflow`
+repository remains available only until its Renovate and Claude consumers have
+migrated here and been verified.

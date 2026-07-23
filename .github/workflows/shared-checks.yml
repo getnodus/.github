@@ -1,4 +1,4 @@
-name: Universal CI
+name: Shared checks
 
 on:
   workflow_call:
@@ -10,15 +10,15 @@ on:
         default: self-hosted
 
 concurrency:
-  group: universal-ci-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  group: shared-checks-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  universal:
-    name: Universal CI
+  checks:
+    name: Shared checks
     runs-on: ${{ inputs.runner || 'self-hosted' }}
     timeout-minutes: 20
     steps:
@@ -77,8 +77,8 @@ jobs:
               ;;
           esac
 
-          download_dir="$RUNNER_TEMP/universal-ci-downloads"
-          bin_dir="$RUNNER_TEMP/universal-ci-bin"
+          download_dir="$RUNNER_TEMP/shared-checks-downloads"
+          bin_dir="$RUNNER_TEMP/shared-checks-bin"
           mkdir -p "$download_dir" "$bin_dir"
 
           actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_${actionlint_arch}.tar.gz"
