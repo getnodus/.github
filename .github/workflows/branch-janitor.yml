@@ -1,0 +1,159 @@
+# Branch janitor — nightly org-wide branch cleanup.
+#
+# WHY THIS EXISTS
+# GitHub natively deletes a head branch when its pull request merges ("Automatically delete
+# head branches", now enabled on every repo in this org). That covers the normal path. It does
+# NOT cover branches that were pushed and abandoned, branches whose PR was closed without
+# merging, or the backlog that accumulated before the setting was turned on. There is no native
+# scheduled bulk cleanup, so this workflow is that missing piece.
+#
+# HOW IT DECIDES — per branch, the newest pull request with that branch as head:
+#   merged            -> delete immediately. Every repo here squash-merges, so the branch tip
+#                        never becomes an ancestor of main. `git branch --merged` and the compare
+#                        API both report these as UNMERGED and would keep them forever. The PR's
+#                        merged_at is the only trustworthy signal.
+#   open              -> never delete. Deleting the head of an open PR closes that PR.
+#   closed, unmerged  -> delete once untouched for STALE_DAYS.
+#   no PR at all      -> delete once untouched for STALE_DAYS.
+#
+# NEVER TOUCHED: the default branch, any branch GitHub reports as protected, and anything
+# matching KEEP_BRANCHES below. Deleted branches that had a PR can be restored from the PR page.
+name: Branch janitor
+
+on:
+  schedule:
+    # 08:00 UTC = 03:00 America/Chicago while CDT is in effect. GitHub cron is UTC-only and has
+    # no DST awareness, so this drifts to 02:00 local in winter. Harmless for a janitor.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it"
+        type: boolean
+        default: true
+      stale_days:
+        description: "Days a branch with no open PR must be untouched before deletion"
+        type: string
+        default: "30"
+      repo_filter:
+        description: "Optional ERE to limit which repos are swept (empty = all)"
+        type: string
+        default: ""
+
+# The job's own GITHUB_TOKEN is deliberately read-only: it cannot reach other repositories, so
+# the deletions run under BRANCH_JANITOR_TOKEN instead.
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-janitor
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # Intentionally GitHub-hosted rather than Blacksmith: this is a few minutes of API calls with
+    # no build cache to benefit from, and it keeps paid Blacksmith minutes for real CI.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Sweep merged and stale branches
+        env:
+          # A fine-grained PAT with Contents: Read and write across the org, or an App
+          # installation token. Swapping to a GitHub App means adding an
+          # actions/create-github-app-token@v2 step above and pointing GH_TOKEN at its output.
+          GH_TOKEN: ${{ secrets.BRANCH_JANITOR_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+          # An empty input (scheduled runs) compares false, so scheduled runs always delete.
+          DRY_RUN: ${{ inputs.dry_run == true }}
+          STALE_DAYS: ${{ inputs.stale_days || '30' }}
+          REPO_FILTER: ${{ inputs.repo_filter }}
+          # Belt and braces on top of the API's own `protected` flag: branch protection expressed
+          # as a ruleset does not always surface there, and these names must never be deleted.
+          KEEP_BRANCHES: '^(main|master|develop|dev|staging|preview|production|prod|release/.*|gh-pages)$'
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::BRANCH_JANITOR_TOKEN is not set. Add it as an org secret with Contents: Read and write."
+            exit 1
+          fi
+
+          cutoff=$(date -u -d "${STALE_DAYS} days ago" +%s)
+          deleted=0; kept=0; failed=0
+          echo "| Repo | Branch | Verdict |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+
+          note() { echo "| $1 | \`$2\` | $3 |" >> "$GITHUB_STEP_SUMMARY"; }
+
+          repos=$(gh api "orgs/$ORG/repos?per_page=100" --paginate \
+                    --jq '.[] | select(.archived==false) | .name')
+          if [ -n "$REPO_FILTER" ]; then
+            repos=$(printf '%s\n' "$repos" | grep -E "$REPO_FILTER" || true)
+          fi
+
+          for repo in $repos; do
+            echo "::group::$repo"
+            default=$(gh api "repos/$ORG/$repo" --jq '.default_branch')
+
+            # One paginated call builds head-ref -> newest-PR state for the whole repo. Querying
+            # per branch instead would multiply requests by branch count and risk rate limiting.
+            # `--paginate` emits one JSON array per page, so the filter must open with `.[]`.
+            # Without it every lookup silently returns "none" and open PRs lose their protection.
+            prs=$(gh api "repos/$ORG/$repo/pulls?state=all&per_page=100" --paginate \
+                    --jq '.[] | {key: .head.ref, num: .number,
+                           state: (if .merged_at then "merged" elif .state=="open" then "open" else "closed" end)}' \
+                  | jq -s 'group_by(.key) | map(max_by(.num)) | INDEX(.key)')
+
+            while IFS=$'\t' read -r branch protected; do
+              [ -z "$branch" ] && continue
+              if [ "$branch" = "$default" ] || [ "$protected" = "true" ] \
+                 || printf '%s' "$branch" | grep -Eq "$KEEP_BRANCHES"; then
+                kept=$((kept+1)); echo "  keep    $branch (protected/default)"; continue
+              fi
+
+              state=$(printf '%s' "$prs" | jq -r --arg b "$branch" '.[$b].state // "none"')
+
+              case "$state" in
+                open)
+                  kept=$((kept+1)); echo "  keep    $branch (open PR)"; continue ;;
+                merged)
+                  reason="PR merged" ;;
+                closed|none)
+                  # Unmerged work: require a quiet period before removing it.
+                  last=$(gh api "repos/$ORG/$repo/commits?sha=$branch&per_page=1" \
+                           --jq '.[0].commit.committer.date' 2>/dev/null || echo "")
+                  if [ -z "$last" ]; then
+                    kept=$((kept+1)); echo "  keep    $branch (no commit date)"; continue
+                  fi
+                  if [ "$(date -u -d "$last" +%s)" -ge "$cutoff" ]; then
+                    kept=$((kept+1)); echo "  keep    $branch ($state, active since $last)"; continue
+                  fi
+                  reason="$state, untouched since ${last%%T*}" ;;
+              esac
+
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "  WOULD   $branch ($reason)"; note "$repo" "$branch" "would delete — $reason"
+                continue
+              fi
+              if gh api -X DELETE "repos/$ORG/$repo/git/refs/heads/$branch" >/dev/null 2>&1; then
+                deleted=$((deleted+1)); echo "  delete  $branch ($reason)"; note "$repo" "$branch" "deleted — $reason"
+              else
+                failed=$((failed+1)); echo "  FAILED  $branch"; note "$repo" "$branch" ":warning: delete failed"
+              fi
+            done < <(gh api "repos/$ORG/$repo/branches?per_page=100" --paginate \
+                       --jq '.[] | "\(.name)\t\(.protected)"')
+            echo "::endgroup::"
+          done
+
+          {
+            echo ""
+            echo "**dry run:** \`$DRY_RUN\` · **stale window:** ${STALE_DAYS}d"
+            echo ""
+            echo "deleted **$deleted** · kept **$kept** · failed **$failed**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A token whose permissions were narrowed would otherwise fail silently every night.
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::$failed branch deletion(s) failed — check BRANCH_JANITOR_TOKEN permissions."
+            exit 1
+          fi
