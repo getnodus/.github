@@ -2,6 +2,7 @@
 
 Shared GitHub defaults and automation for the Intuitum organization.
 
+- `dependabot.yml` keeps shared workflow actions current.
 - `claude.yml` provides trusted-collaborator Claude automation.
 - `actions.yml` is this public repository's GitHub-hosted validation entrypoint.
 - `diff-check.yml`, `workflow-lint.yml`, and `secret-scan.yml` are narrow,
